@@ -193,6 +193,27 @@ if (typeof module !== 'undefined') module.exports = NonoEngine;
     if (!found) for (let i = 0; i < s.x.length; i++) if (s.sol[i] && s.x[i] !== 1) { found = { i, val: 1, text: 'Déduction avancée : cette case est noire.' }; break; }
     return found;
   }
+  const FIGS = (() => {
+    const s = 18, line = (cells, bad) => {
+      let o = figNum(s * .55, s / 2, '3', '', 12) + figNum(s * 1.35, s / 2, '1', '', 12);
+      const x0 = s * 2;
+      cells.forEach((v, k) => { if (v) o += `<rect class="${bad ? 'fr' : 'fi'}" x="${x0 + k * s + 2}" y="2" width="${s - 4}" height="${s - 4}" rx="2"/>`; });
+      return o + figGrid(cells.length, 1, s, x0, 0);
+    };
+    const pic = ['0110', '1111', '1001', '1111'];
+    const rc = pic.map(r => NonoEngine.runs([...r].map(Number)));
+    const cc = [0, 1, 2, 3].map(c => NonoEngine.runs(pic.map(r => +r[c])));
+    const ox = s * 2, oy = s * 2;
+    let p = '';
+    pic.forEach((r, i) => [...r].forEach((v, j) => { if (v === '1') p += `<rect class="fi" x="${ox + j * s + 2}" y="${oy + i * s + 2}" width="${s - 4}" height="${s - 4}" rx="2"/>`; }));
+    rc.forEach((cl, i) => cl.forEach((n, k) => p += figNum(ox - (cl.length - k) * s * .8 + s * .3, oy + i * s + s / 2, n, '', 11)));
+    cc.forEach((cl, j) => cl.forEach((n, k) => p += figNum(ox + j * s + s / 2, oy - (cl.length - k) * s * .8 + s * .35, n, '', 11)));
+    p += figGrid(4, 4, s, ox, oy);
+    return figFigs(
+      ruleFig(line([1, 1, 1, 0, 1, 0, 0]), 9 * s, s, 'Indice 3 1 : un bloc de 3, puis un bloc de 1, avec au moins une case vide entre eux.', 'ok', true),
+      ruleFig(line([0, 1, 1, 1, 1, 0, 0], true), 9 * s, s, 'Les blocs collés forment un bloc de 4 : ce n\'est plus « 3 1 ».', 'no', true),
+      ruleFig(p, 6 * s, 6 * s, 'Chaque ligne et chaque colonne respecte ses nombres : l\'image apparaît.', 'ok'));
+  })();
   registerGame({
     id: 'nonogramme', name: 'Nonogramme', kanji: '絵', winText: 'Image révélée', revealWin: true,
     levels: LV, customLevel, customDefault: { W: 10, H: 10, hard: false }, customRange: { W: [5, 30], H: [5, 30] },
@@ -200,7 +221,7 @@ if (typeof module !== 'undefined') module.exports = NonoEngine;
     rules: `<h3 style="margin-top:0">Nonogramme 絵 : les règles</h3><ul>
       <li>Les nombres à gauche de chaque <b>ligne</b> et en haut de chaque <b>colonne</b> donnent les longueurs des blocs de cases noires, dans l'ordre.</li>
       <li>Entre deux blocs, il y a <b>au moins une case vide</b>.</li>
-      <li>Noircis les bonnes cases pour <b>révéler l'image</b>.</li></ul>
+      <li>Noircis les bonnes cases pour <b>révéler l'image</b>.</li></ul>${FIGS}
       <h3>Commandes</h3><ul>
       <li>Choisis l'outil sous la grille : <b>noircir</b> ou <b>croix</b> (case vide sûre).</li>
       <li>Touche une case, ou glisse le doigt le long d'une ligne ou d'une colonne pour en remplir plusieurs.</li>
