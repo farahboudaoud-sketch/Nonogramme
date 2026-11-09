@@ -47,11 +47,11 @@ const NonoEngine = (function () {
       for (let t = 0; t < n; t++) cells.push(isRow ? idx * W + t : t * W + idx);
       const cur = cells.map(i => v[i]);
       const res = lineSolve(isRow ? B.rows[idx] : B.cols[idx], cur);
-      if (!res) return false;
+      if (!res) { propagate.fail = { type: isRow ? 'row' : 'col', idx }; return false; }
       for (let t = 0; t < n; t++) {
         if (cur[t] !== -1) continue;
         let val = -1;
-        if (res.canF[t] && !res.canE[t]) val = 1; else if (res.canE[t] && !res.canF[t]) val = 0; else if (!res.canE[t] && !res.canF[t]) return false;
+        if (res.canF[t] && !res.canE[t]) val = 1; else if (res.canE[t] && !res.canF[t]) val = 0; else if (!res.canE[t] && !res.canF[t]) { propagate.fail = { type: isRow ? 'row' : 'col', idx }; return false; }
         if (val < 0) continue;
         const i = cells[t];
         v[i] = val;
@@ -139,7 +139,7 @@ if (typeof module !== 'undefined') module.exports = NonoEngine;
     moyen:     { W: 10, H: 10, density: .56, simple: true, label: 'Moyen',     kanji: '中' },
     difficile: { W: 15, H: 15, density: .55, label: 'Difficile', kanji: '難' },
     expert:    { W: 15, H: 20, density: .55, label: 'Expert',    kanji: '極' },
-    maitre:    { W: 20, H: 25, density: .53, label: 'Maître',    kanji: '鬼', hard: { look: 6 } }
+    maitre:    { W: 20, H: 25, density: .5, label: 'Maître',    kanji: '鬼', hard: { look: 20 } }
   };
   const customLevel = (W, H, hard) => ({ W, H, density: .55, simple: !hard, label: 'Personnalisé', kanji: '自', hard: hard ? { look: 2 } : null });
   const margins = s => ({ mr: Math.max(1, ...s.rows.map(r => r.length || 1)), mc: Math.max(1, ...s.cols.map(c => c.length || 1)) });
@@ -149,49 +149,76 @@ if (typeof module !== 'undefined') module.exports = NonoEngine;
     const a = E.runs(l), b = isRow ? s.rows[idx] : s.cols[idx];
     return a.length === b.length && a.every((x, k) => x === b[k]);
   }
+  // ---- hints: one line read on its own, from what is visible ----
+  function visibleValues(s, extra) {
+    const v = new Int8Array(s.W * s.H).fill(-1);
+    for (let i = 0; i < v.length; i++) { if (s.x[i] === 1) v[i] = 1; else if (s.x[i] === 2) v[i] = 0; }
+    if (extra) extra.forEach(([i, val]) => (v[i] = val));
+    return v;
+  }
+  const lineName = (type, idx, s) => {
+    const clue = type === 'row' ? s.rows[idx] : s.cols[idx];
+    return `${type === 'row' ? 'cette ligne' : 'cette colonne'} (indice ${clue.length ? clue.join(' ') : '0'})`;
+  };
+  // every deduction that a single line gives, read alone
+  function oneStep(s, v) {
+    const out = [];
+    const lines = [];
+    for (let r = 0; r < s.H; r++) lines.push(['row', r]);
+    for (let c = 0; c < s.W; c++) lines.push(['col', c]);
+    for (const [type, idx] of lines) {
+      const n = type === 'row' ? s.W : s.H, cells = [];
+      for (let t = 0; t < n; t++) cells.push(type === 'row' ? idx * s.W + t : t * s.W + idx);
+      const cur = cells.map(i => v[i]);
+      if (!cur.includes(-1)) continue;
+      const res = E.lineSolve(type === 'row' ? s.rows[idx] : s.cols[idx], cur);
+      if (!res) continue;
+      const fill = [], empty = [];
+      cells.forEach((i, t) => { if (cur[t] !== -1) return; if (res.canF[t] && !res.canE[t]) fill.push(i); else if (res.canE[t] && !res.canF[t]) empty.push(i); });
+      if (fill.length) out.push({ kind: 'place', type, idx, cells: fill, val: 1 });
+      if (empty.length) out.push({ kind: 'excl', type, idx, cells: empty, val: 0 });
+    }
+    return out;
+  }
+  function stepText(d, s, after) {
+    const L = lineName(d.type, d.idx, s), n = d.cells.length;
+    if (d.val === 1) return `${after ? 'Du coup, dans ' : 'Dans '}${L}, ${n > 1 ? `ces ${n} cases sont forcément noires` : 'cette case est forcément noire'} : toutes les façons de placer les blocs, compte tenu des cases déjà remplies ou barrées, ${n > 1 ? 'les' : 'la'} recouvrent.`;
+    return `${after ? 'Du coup, dans ' : 'Dans '}${L}, ${n > 1 ? `ces ${n} cases restent forcément vides` : 'cette case reste forcément vide'} : aucune façon de placer les blocs ne ${n > 1 ? 'les' : 'la'} recouvre.`;
+  }
   function findHint(s) {
     for (let i = 0; i < s.x.length; i++) {
       if (s.x[i] === 1 && !s.sol[i]) return { type: 'wrong', i, val: 0, text: 'Cette case ne doit pas être noircie.' };
       if (s.x[i] === 2 && s.sol[i]) return { type: 'wrong', i, val: 1, text: 'Cette case est barrée, mais elle doit être noircie.' };
     }
-    const B = E.makeBoard(s.W, s.H, s.rows, s.cols);
-    const known = () => { const v = new Int8Array(s.W * s.H).fill(-1); for (let i = 0; i < v.length; i++) { if (s.x[i] === 1) v[i] = 1; else if (s.x[i] === 2) v[i] = 0; } return v; };
-    let found = null;
-    const desc = (type, idx) => {
-      const clue = (type === 'row' ? s.rows[idx] : s.cols[idx]);
-      return `${type === 'row' ? 'Dans cette ligne' : 'Dans cette colonne'} (indice ${clue.length ? clue.join(' ') : '0'})`;
-    };
-    // filled cells first, crosses only if nothing else
-    let v = known();
-    E.propagate(B, v, (i, val, type, idx) => {
-      if (val !== 1) return false;
-      found = { i, val, line: { type, idx }, text: `${desc(type, idx)}, cette case est forcément noire : toutes les façons de placer les blocs la recouvrent.` };
-      return true;
-    });
-    if (!found) {
-      v = known();
-      E.propagate(B, v, (i, val, type, idx) => {
-        found = { i, val, line: { type, idx }, text: `${desc(type, idx)}, cette case reste forcément vide : aucune façon de placer les blocs ne la recouvre. Barre-la.` };
-        return true;
-      });
+    const v = visibleValues(s);
+    const steps = oneStep(s, v);
+    // prefer the line that fills the most cells
+    const places = steps.filter(d => d.kind === 'place').sort((a, b) => b.cells.length - a.cells.length);
+    if (places.length) { const d = places[0]; return { type: 'logic', i: d.cells[0], cells: d.cells, val: 1, line: d, text: stepText(d, s) }; }
+    const excl = steps.filter(d => d.kind === 'excl').sort((a, b) => b.cells.length - a.cells.length);
+    for (const e of excl) {
+      const p2 = oneStep(s, visibleValues(s, e.cells.map(i => [i, 0]))).filter(d => d.kind === 'place').sort((a, b) => b.cells.length - a.cells.length)[0];
+      if (p2) return { type: 'logic', i: p2.cells[0], cells: p2.cells, val: 1, line: p2, marks: e.cells, markLine: e,
+        text: `${stepText(e, s)} ${stepText(p2, s, true)}` };
     }
-    if (!found) {
-      v = known(); E.propagate(B, v);
-      for (let i = 0; i < v.length && !found; i++) {
-        if (v[i] !== -1) continue;
-        for (const val of [1, 0]) {
-          const v2 = v.slice(); v2[i] = val;
-          if (E.propagate(B, v2) === false) {
-            found = { i, val: 1 - val, text: val === 1
-              ? 'Raisonnement par l\'absurde : si cette case était noire, une ligne ou une colonne deviendrait impossible à compléter. Elle reste donc vide.'
-              : 'Raisonnement par l\'absurde : si cette case restait vide, une ligne ou une colonne deviendrait impossible à compléter. Elle est donc noire.' };
-            break;
-          }
-        }
+    if (excl.length) { const d = excl[0]; return { type: 'note', i: d.cells[0], cells: d.cells, val: 0, line: d, text: stepText(d, s) + ' Barre-les.' }; }
+    // shortest proof by contradiction
+    let best = null;
+    for (let i = 0; i < v.length; i++) {
+      if (v[i] !== -1) continue;
+      for (const val of [1, 0]) {
+        const v2 = v.slice(); v2[i] = val;
+        let steps = 0; E.propagate.fail = null;
+        if (E.propagate(E.makeBoard(s.W, s.H, s.rows, s.cols), v2, () => { steps++; return false; }) === false && (!best || steps < best.steps)) best = { i, val, steps, fail: E.propagate.fail };
       }
     }
-    if (!found) for (let i = 0; i < s.x.length; i++) if (s.sol[i] && s.x[i] !== 1) { found = { i, val: 1, text: 'Déduction avancée : cette case est noire.' }; break; }
-    return found;
+    if (best) {
+      const f = best.fail, where = f ? lineName(f.type, f.idx, s) : 'une ligne';
+      return { type: best.val === 1 ? 'note' : 'logic', i: best.i, cells: [best.i], val: 1 - best.val, fail: f,
+        text: `Raisonnement par l'absurde : si cette case était ${best.val === 1 ? 'noire' : 'vide'}, en enchaînant les déductions ligne par ligne, ${where} (entourée en rouge) deviendrait impossible à compléter. Elle est donc ${best.val === 1 ? 'vide' : 'noire'}.` };
+    }
+    for (let i = 0; i < s.x.length; i++) if (s.sol[i] && s.x[i] !== 1) return { type: 'logic', i, cells: [i], val: 1, text: 'Déduction avancée : cette case est noire.' };
+    return null;
   }
   const FIGS = (() => {
     const s = 18, line = (cells, bad) => {
@@ -243,8 +270,14 @@ if (typeof module !== 'undefined') module.exports = NonoEngine;
       const h = findHint(s);
       if (!h) return null;
       h.r = (h.i / s.W) | 0; h.c = h.i % s.W;
-      h.focusText = h.line ? (h.line.type === 'row' ? 'Regarde cette ligne.' : 'Regarde cette colonne.') : 'Regarde cette case.';
-      h.apply = st => { st.x[h.i] = h.val === 1 ? 1 : 2; };
+      h.focusText = h.markLine ? `Regarde ${h.markLine.type === 'row' ? 'cette ligne' : 'cette colonne'}.` : h.line ? (h.line.type === 'row' ? 'Regarde cette ligne.' : 'Regarde cette colonne.') : 'Regarde cette case.';
+      if (h.markLine) h.line = h.markLine;
+      h.applyLabel = h.type === 'note' ? 'Barrer' : 'Poser';
+      h.apply = st => {
+        (h.marks || []).forEach(j => { if (st.x[j] === 0) st.x[j] = 2; });
+        (h.cells || [h.i]).forEach(j => { st.x[j] = h.val === 1 ? 1 : 2; });
+        if (h.type === 'wrong') st.x[h.i] = h.val === 1 ? 1 : 0;
+      };
       return h;
     },
     render: (s, ctx) => {
@@ -271,8 +304,14 @@ if (typeof module !== 'undefined') module.exports = NonoEngine;
       for (let r = 0; r <= H; r++) out.push(`<line class="gl${r % 5 === 0 ? ' b' : ''}" x1="${ox}" y1="${oy + r * S}" x2="${ox + W * S}" y2="${oy + r * S}"/>`);
       for (let c = 0; c <= W; c++) out.push(`<line class="gl${c % 5 === 0 ? ' b' : ''}" x1="${ox + c * S}" y1="${oy}" x2="${ox + c * S}" y2="${oy + H * S}"/>`);
       if (h && h.level >= 3) {
-        const r = (h.i / W) | 0, c = h.i % W, x = ox + c * S, y = oy + r * S;
-        out.push(h.val === 1 ? `<rect class="nn-ghost" x="${x + 6}" y="${y + 6}" width="${S - 12}" height="${S - 12}" rx="3"/>` : `<rect class="hcell" x="${x + 3}" y="${y + 3}" width="${S - 6}" height="${S - 6}" rx="5"/>`);
+        const ghost = (i, val) => { const r = (i / W) | 0, c = i % W, x = ox + c * S, y = oy + r * S;
+          return val === 1 ? `<rect class="nn-ghost" x="${x + 6}" y="${y + 6}" width="${S - 12}" height="${S - 12}" rx="3"/>` : `<path class="nn-ghostx" d="M${x + 20} ${y + 20}L${x + 40} ${y + 40}M${x + 40} ${y + 20}L${x + 20} ${y + 40}"/>`; };
+        (h.marks || []).forEach(i => out.push(ghost(i, 0)));
+        (h.cells || [h.i]).forEach(i => out.push(ghost(i, h.val)));
+        if (h.fail) {
+          if (h.fail.type === 'row') out.push(`<rect class="hfail" x="3" y="${oy + h.fail.idx * S + 3}" width="${ox + W * S - 6}" height="${S - 6}" rx="6"/>`);
+          else out.push(`<rect class="hfail" x="${ox + h.fail.idx * S + 3}" y="3" width="${S - 6}" height="${oy + H * S - 6}" rx="6"/>`);
+        }
       }
       return out.join('');
     },

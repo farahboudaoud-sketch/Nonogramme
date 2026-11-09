@@ -17,7 +17,7 @@ Les mises à jour s'installent par-dessus l'ancienne version sans perdre la part
 - **5 niveaux** : Facile 5×5, Moyen 10×10, Difficile 15×15, Expert 15×20, Maître 20×25. Chaque grille est générée au hasard (motifs symétriques ou organiques) et vérifiée à solution unique ; Facile et Moyen se résolvent ligne par ligne, Maître demande des raisonnements par l'absurde.
 - **Niveau personnalisé** : de 5 à 30 cases de large et de haut.
 - **Outils** noircir / croix, remplissage en glissant le doigt le long d'une ligne ou d'une colonne, indices d'une ligne terminée estompés.
-- **Indices progressifs** expliqués, vérifier, annuler, effacer, chrono, records, mode clair / sombre, zoom au pincement, sauvegarde automatique. Fonctionne hors connexion.
+- **Indices progressifs** expliqués, tirés uniquement de ce qui est visible sur la grille (avec, en dernier recours, un raisonnement par l'absurde qui montre où il aboutit), vérifier, annuler, effacer, chrono, records, mode clair / sombre, zoom au pincement, sauvegarde automatique. Fonctionne hors connexion.
 
 ## Structure
 

@@ -10,3 +10,4 @@
 .nn-pad button.on{border-color:var(--red2);background:var(--tint)}
 .nn-ic.f{display:inline-block;width:16px;height:16px;background:var(--ink);border-radius:2px}
 .nn-ic.x{font-size:15px;color:var(--ink2)}
+.nn-ghostx{stroke:var(--red2);stroke-width:4;stroke-linecap:round;animation:breathe 1.3s ease-in-out infinite}
